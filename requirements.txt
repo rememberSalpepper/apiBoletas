@@ -6,3 +6,4 @@ pytesseract
 opencv-python
 numpy
 openpyxl
+python-multipart

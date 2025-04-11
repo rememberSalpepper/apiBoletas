@@ -1,0 +1,41 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      # 2. Configurar Cloud SDK e iniciar sesión con las credenciales
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          service_account_key: ${{ secrets.GCP_CREDENTIALS }}
+          project_id: ${{ secrets.GCLOUD_PROJECT }}
+
+      # 3. Construir la imagen Docker
+      - name: Build Docker image
+        run: |
+          docker build -t gcr.io/${{ secrets.GCLOUD_PROJECT }}/api:${{ github.sha }} .
+
+      # 4. Subir la imagen al Container Registry
+      - name: Push Docker image
+        run: |
+          docker push gcr.io/${{ secrets.GCLOUD_PROJECT }}/api:${{ github.sha }}
+
+      # 5. Desplegar la imagen a Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy api \
+            --image gcr.io/${{ secrets.GCLOUD_PROJECT }}/api:${{ github.sha }} \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated
