@@ -10,28 +10,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout del repositorio
+      # 1. Clonar el repositorio
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # 2. Configurar Cloud SDK e iniciar sesión con las credenciales
+      # 2. Autenticarse en Google Cloud con la acción de auth
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      # 3. Configurar el Cloud SDK
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          service_account_key: ${{ secrets.GCP_CREDENTIALS }}
           project_id: ${{ secrets.GCLOUD_PROJECT }}
 
-      # 3. Construir la imagen Docker
+      # 4. Configurar autenticación para Docker
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker
+
+      # 5. Construir la imagen Docker
       - name: Build Docker image
         run: |
           docker build -t gcr.io/${{ secrets.GCLOUD_PROJECT }}/api:${{ github.sha }} .
 
-      # 4. Subir la imagen al Container Registry
+      # 6. Subir la imagen a Container Registry
       - name: Push Docker image
         run: |
           docker push gcr.io/${{ secrets.GCLOUD_PROJECT }}/api:${{ github.sha }}
 
-      # 5. Desplegar la imagen a Cloud Run
+      # 7. Desplegar la imagen a Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy api \
