@@ -1,23 +1,29 @@
 FROM python:3.9-slim
 
-# Actualiza e instala las dependencias del sistema, incluyendo Tesseract OCR y sus paquetes necesarios
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+# Instala dependencias sistema + Tesseract
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
     libglib2.0-0 \
     tesseract-ocr \
     tesseract-ocr-spa \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copia e instala las dependencias de Python
+# Instala dependencias Python
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# Usa --no-cache-dir para reducir tamaño de imagen
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Copia el resto del código
+# Copia el código de la aplicación
 COPY . .
 
+# Variable de entorno para el puerto (Cloud Run la usa)
 ENV PORT 8080
 
-# Inicia la aplicación
+# Expone el puerto
+EXPOSE 8080
+
+# Comando para iniciar la app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

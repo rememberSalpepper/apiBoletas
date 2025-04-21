@@ -1,9 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pandas
 pillow
 pytesseract
-opencv-python
 numpy
 openpyxl
 python-multipart
+python-dotenv
+google-generativeai

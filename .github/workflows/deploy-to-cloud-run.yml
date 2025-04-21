@@ -1,51 +1,83 @@
-name: Deploy to Cloud Run
+name: Deploy API (Python) to Cloud Run # Nombre descriptivo
 
 on:
   push:
     branches:
-      - main
+      - main # O la rama donde está el código de tu API
+
+env:
+  # Variables reutilizables
+  PROJECT_ID: ${{ secrets.GCLOUD_PROJECT }}
+  GAR_LOCATION: us-central1
+  SERVICE_NAME: api # Nombre del servicio API en Cloud Run
+  REGION: us-central1
+  # Nombre EXACTO del secreto en Google Cloud Secret Manager
+  GCP_SECRET_NAME: google-api-key
 
 jobs:
-  build-and-deploy:
+  build-and-deploy-api: # Nombre del job descriptivo
     runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write' # Para Workload Identity Federation (WIF)
 
     steps:
-      # 1. Clonar el repositorio
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: Checkout API repository code # Asume que este workflow está en el repo de la API
+        uses: actions/checkout@v3
 
-      # 2. Autenticarse en Google Cloud con la acción de auth
-      - name: Authenticate to Google Cloud
+      # --- Autenticación: Elige UNA de las siguientes opciones ---
+
+      # Opción 1: Workload Identity Federation (Recomendado si está configurado)
+      # - name: Authenticate to Google Cloud (WIF)
+      #   id: auth
+      #   uses: google-github-actions/auth@v1
+      #   with:
+      #     workload_identity_provider: 'projects/${{ secrets.GCLOUD_WIF_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.GCLOUD_WIF_POOL }}/providers/${{ secrets.GCLOUD_WIF_PROVIDER }}'
+      #     service_account: ${{ secrets.GCLOUD_SERVICE_ACCOUNT }}
+
+      # Opción 2: Clave de Cuenta de Servicio JSON (Si usas esto)
+      - name: Authenticate to Google Cloud (Service Account Key)
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }} # Asegúrate que este secreto existe en GitHub
 
-      # 3. Configurar el Cloud SDK
+      # --------------------------------------------------------
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: ${{ secrets.GCLOUD_PROJECT }}
+          project_id: ${{ env.PROJECT_ID }}
 
-      # 4. Configurar autenticación para Docker
-      - name: Configure Docker authentication
-        run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
 
-      # 5. Construir la imagen Docker
-      - name: Build Docker image
+      # Construir imagen - Asume Dockerfile está en la raíz del repo actual
+      - name: Build Docker image (API)
         run: |
-          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/api/api:${{ github.sha }} .
+          docker build \
+            -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            . # "." indica construir desde el directorio actual
 
-      # 6. Subir la imagen a Artifact Registry
-      - name: Push Docker image
+      # Subir imagen
+      - name: Push Docker image (API)
         run: |
-          docker push us-central1-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/api/api:${{ github.sha }}
+          docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
 
-      # 7. Desplegar la imagen a Cloud Run
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy api \
-            --image us-central1-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/api/api:${{ github.sha }} \
-            --region us-central1 \
-            --platform managed \
-            --allow-unauthenticated
+      # Desplegar API a Cloud Run, montando el secreto
+      - name: Deploy API to Cloud Run
+        id: deploy-api
+        uses: google-github-actions/deploy-cloudrun@v1
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          # --- Mapeo Correcto del Secreto ---
+          # La variable de entorno GOOGLE_API_KEY (MAYÚSCULAS, leída por Python)
+          # tomará su valor del secreto llamado google-api-key (minúsculas, en GCP)
+          secrets: |-
+            GOOGLE_API_KEY=${{ env.GCP_SECRET_NAME }}:latest
+          # ------------------------------------
+          flags: --allow-unauthenticated # O tus flags necesarios
+
+      - name: Show Deployed API URL
+        run: echo "API Service deployed to ${{ steps.deploy-api.outputs.url }}"
